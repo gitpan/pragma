@@ -1,8 +1,10 @@
 package pragma;
 use strict;
 use warnings;
+use Carp 'carp';
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
+our $DEBUG;
 
 =head1 NAME
 
@@ -14,7 +16,27 @@ The C<pragma> pragma is a module which influences other user pragmata
 such as L<lint>. With Perl 5.10 you can create user pragmata and the
 C<pragma> pragma can modify and peek at other pragmata.
 
-=head1 A basic example
+=head1 SUBCLASSING
+
+All methods may be subclassed. Importing pragma with the single
+parameter '-base' will do the proper stuff so your class is now a
+pragma.
+
+  package your_pragma;
+  use pragma -base;
+
+  # Woot!
+
+  1;
+
+Subclassed pragmas are stored in the hints hash with their package
+name as a prefix. This prevents pragmas from unintentionally stomping
+on each other.
+
+  # sets 'your::pragma::foo = 42
+  use your_prama foo => 42;
+
+=head1 A BASIC EXAMPLE
 
 Assume you're using the C<myint> pragma mentioned in
 L<perlpragma>. For ease, that pragma is duplicated here. You'll see it
@@ -65,17 +87,64 @@ Sets C<PRAGMA>'s value to C<VALUE>.
 
 =cut
 
+# TODO: figure out how to get Module::Compile::TT to integrate nicely
+# so instead of a pragma.pm and pragma.pmc I have in the source distro
+# a src/lib/pragma.pm and a lib/pragma.pm.
+
+# use tt subs => [qw[import poke]];
+# [% FOREACH sub IN subs %]
 sub import {
 
     # Handle "use pragma;"
     return if 1 == @_;
 
-    my ( undef, $pragma, $value ) = @_;
+    # [% IF sub == 'import' %]
+    # Handle "use pragma -base;"
+    if ( 2 == @_ and $_[1] eq '-base' ) {
+        no strict 'refs';
+        my $tgt = caller;
+        carp "$tgt ISA $_[0]\n" if $DEBUG;
+        @{ caller() . '::ISA' } = $_[0];
+        return;
+    }
 
-    $^H{$pragma} = $value;
+    # [% END %]
+
+    # TODO: support "use pragma 'foo'" to mean "use pragma 'foo' =>
+    # '1'"
+
+    my $class = shift @_;
+    $class = $class eq __PACKAGE__ ? '' : "$class\::";
+    while (@_) {
+        my ( $pragma, $value ) = splice @_, 0, 2;
+        my $hh_pragma = "$class$pragma";
+
+        $value //= '';
+        carp "$hh_pragma = $value\n" if $DEBUG;
+        $^H{$hh_pragma} = $value;
+    }
+
     return;
 }
-*poke = \&import;
+
+# [% END ]
+# no tt;
+
+sub poke {
+
+    my $class = shift @_;
+    $class = $class eq __PACKAGE__ ? '' : "$class\::";
+    while (@_) {
+        my ( $pragma, $value ) = splice @_, 0, 2;
+        my $hh_pragma = "$class$pragma";
+
+        $value //= '';
+        carp "$hh_pragma = $value\n" if $DEBUG;
+        $^H{$hh_pragma} = $value;
+    }
+
+    return;
+}
 
 =item C<< no pragma PRAGMA >>
 
@@ -90,9 +159,11 @@ sub unimport {
     # Handle "no pragma";
     return if 1 == @_;
 
-    my ( undef, $pragma ) = @_;
+    my ( $class, $pragma ) = @_;
+    $class = $class eq __PACKAGE__ ? '' : "$class\::";
+    my $hh_pragma = "$class$pragma";
 
-    delete $^H{$pragma} if exists $^H{$pragma};
+    delete $^H{$hh_pragma} if exists $^H{$hh_pragma};
     return;
 }
 
@@ -103,7 +174,8 @@ Returns the current value of C<PRAGMA>.
 =cut
 
 sub peek {
-    my ( undef, $pragma ) = @_;
+    my ( $class, $pragma ) = @_;
+    $class = $class eq __PACKAGE__ ? '' : "$class\::";
 
     # use Data::Dumper 'Dumper';
     # my $cx = 0;
@@ -114,15 +186,11 @@ sub peek {
 
     my $hints_hash = ( caller 0 )[10];
     return unless $hints_hash;
-    return unless exists $hints_hash->{$pragma};
-    return $hints_hash->{$pragma};
+    return unless exists $hints_hash->{"$class$pragma"};
+    return $hints_hash->{"$class$pragma"};
 }
 
 =back
-
-=head1 SUBCLASSING
-
-All methods may be subclassed.
 
 =cut
 

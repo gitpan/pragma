@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:                pragma
-version:             0.01
+version:             0.02
 abstract:            A pragma for controlling other user pragmas
 license:             ~
 generated_by:        ExtUtils::MakeMaker version 6.31_01
